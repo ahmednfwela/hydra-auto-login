@@ -32,6 +32,9 @@ router.get("/", csrfProtection, (req, res, next) => {
       loginChallenge: challenge,
     })
     .then((loginRequest) => {
+      const urlObject = new URL(loginRequest.request_url);
+      const autoLogin = urlObject.searchParams.get('auto_login') === 'true';
+
       // If hydra was already able to authenticate the user, skip will be true and we do not need to re-authenticate
       // the user.
       if (loginRequest.skip) {
@@ -53,7 +56,39 @@ router.get("/", csrfProtection, (req, res, next) => {
             res.redirect(String(redirect_to))
           })
       }
+      if (autoLogin) {
+        return hydraAdmin
+          .acceptOAuth2LoginRequest({
+            loginChallenge: challenge,
+            acceptOAuth2LoginRequest: {
+              // Subject is an alias for user ID. A subject can be a random string, a UUID, an email address, ....
+              subject: "foo@bar.com",
 
+              // This tells hydra to remember the browser and automatically authenticate the user in future requests. This will
+              // set the "skip" parameter in the other route to true on subsequent requests!
+              remember: true,
+
+              // When the session expires, in seconds. Set this to 0 so it will never expire.
+              remember_for: 3600,
+
+              // Sets which "level" (e.g. 2-factor authentication) of authentication the user has. The value is really arbitrary
+              // and optional. In the context of OpenID Connect, a value of 0 indicates the lowest authorization level.
+              // acr: '0',
+              //
+              // If the environment variable CONFORMITY_FAKE_CLAIMS is set we are assuming that
+              // the app is built for the automated OpenID Connect Conformity Test Suite. You
+              // can peak inside the code for some ideas, but be aware that all data is fake
+              // and this only exists to fake a login system which works in accordance to OpenID Connect.
+              //
+              // If that variable is not set, the ACR value will be set to the default passed here ('0')
+              acr: oidcConformityMaybeFakeAcr(loginRequest, "0"),
+            },
+          })
+          .then(({ redirect_to }) => {
+            // All we need to do now is to redirect the user back to hydra!
+            res.redirect(String(redirect_to))
+          });
+      }
       // If authentication can't be skipped we MUST show the login UI.
       res.render("login", {
         csrfToken: req.csrfToken(),
